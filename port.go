@@ -50,6 +50,7 @@ func openPort(path string) (*port, error) {
 	t.Iflag, t.Oflag, t.Lflag = 0, 0, 0
 	t.Cflag = unix.CS8 | unix.CREAD | unix.CLOCAL
 	t.Cc[unix.VMIN], t.Cc[unix.VTIME] = 0, 1
+	setSpeed(t)
 	if err := unix.IoctlSetTermios(fd, ioctlSetTermios, t); err != nil {
 		unix.Close(fd)
 		return nil, err
@@ -111,6 +112,10 @@ func (p *port) write(b []byte, idle time.Duration) error {
 func (p *port) send(s string) error { return p.write([]byte(s), 5*time.Second) }
 
 // read returns what arrives within one VTIME period, possibly nothing.
+//
+// Linux returns 0 bytes at once, forever, from a tty whose device has gone,
+// with no error, which is indistinguishable from an idle board except that
+// the device node is gone too. So a read that brings nothing checks for it.
 func (p *port) read(buf []byte) (int, error) {
 	n, err := p.f.Read(buf)
 	if err == io.EOF {
@@ -118,6 +123,11 @@ func (p *port) read(buf []byte) (int, error) {
 	}
 	if err != nil {
 		return n, p.lost(err)
+	}
+	if n == 0 {
+		if _, err := os.Stat(p.path); err != nil {
+			return 0, p.lost(unix.ENODEV)
+		}
 	}
 	return n, nil
 }
