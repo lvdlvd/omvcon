@@ -44,3 +44,26 @@ doesn't.
 
 Exit codes: 1 the code raised or a transfer didn't check out, 2 usage,
 3 board unreachable.
+
+## Where `get`'s 4 MB/s goes (board #3, v1.2.1, 2026-10-12)
+
+Measured on the board with the same 16 KB loop `get` runs, over a 540 MB
+recording on a 128 GB card:
+
+| step | rate |
+|---|---|
+| card read alone | 16.3 MB/s |
+| read + sha256 (hashlib) | 6.0 MB/s |
+| read + crc32 (binascii) | 11.5 MB/s |
+| read + console write (no hash) | 3.1 MB/s |
+| read + sha256 + console write (what `get` does) | 2.2 MB/s in this test, 4.3 MB/s as `get` |
+
+So the console transmit path is the floor (TinyUSB's CDC transmit buffer
+is 4 KB in `boards/CORMORANT/micropython/mpconfigboard.h`, and
+MicroPython's console write polls it), and the sha256 on the board costs
+almost as much again. To get near the card's rate: (1) swap sha256 for
+crc32 on both ends (a change in this tool only); (2) raise
+`CFG_TUD_CDC_TX_BUFSIZE` (and the console write chunking) in the firmware,
+or add a bulk vendor endpoint for file transfers; (3) a card reader beats
+all of it for bulk offloads. USB mass storage stays off on purpose (dual
+access corrupted a card once; see the board config).
