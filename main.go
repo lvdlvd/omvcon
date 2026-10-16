@@ -49,8 +49,11 @@ const usage = `usage: omvcon [-p port] [-t timeout] command [args]
   tail                   print what the board prints; sends nothing
   reset soft|hard        soft: Ctrl-D, timed, then boot times
                          hard: machine.reset(), wait for the console to come back
+  view [-http ADDR] [-open] FILE
+                         run FILE with omvview: its frames in a browser page
+                         (default localhost:8080), clicks and boxes sent back
 
--t bounds exec, run and tail (0: no limit). On a timeout or Ctrl-C the board's
+-t bounds exec, run, view and tail (0: no limit). On a timeout or Ctrl-C the board's
 code is interrupted and omvcon reads up to the next prompt before it exits.
 `
 
@@ -105,6 +108,8 @@ func main() {
 			fail(exitUsage, err)
 		}
 		run(attach(path, intr), string(code))
+	case cmd == "view" && len(args) >= 1:
+		viewCmd(path, intr, args)
 	case cmd == "get" && (len(args) == 1 || len(args) == 2):
 		local := args[0][strings.LastIndex(args[0], "/")+1:]
 		if len(args) == 2 {

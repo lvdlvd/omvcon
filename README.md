@@ -12,6 +12,7 @@ habits that cost us replugs.
     ./omvcon tail                   # watch a running main.py without touching it
     ./omvcon reset soft             # timed, then the per-stage boot times
     ./omvcon reset hard             # machine.reset(), wait for the console
+    ./omvcon view script.py         # its omvview frames in a browser page, clicks back
 
 ## What is different from mpremote
 
@@ -44,6 +45,69 @@ doesn't.
 
 Exit codes: 1 the code raised or a transfer didn't check out, 2 usage,
 3 board unreachable.
+
+## view: frames in a browser, clicks back to the script
+
+    ./omvcon view ../lwir/thermal.py              # page at http://localhost:8080/
+    ./omvcon view -open -http :8090 script.py     # every interface, opens the browser
+
+The script imports `omvview` and calls `omvview.send(img)` for each frame
+it wants shown and `omvview.poll()` for the page's events:
+
+    import omvview
+    while True:
+        img = csi0.snapshot()
+        omvview.send(img)            # capped at 15 fps; img is not changed
+        ev = omvview.poll()          # None, ('click', x, y) or ('box', x, y, w, h)
+
+No copy of `omvview.py` is needed on the card: view embeds it and
+installs it before the script runs (a class in `sys.modules`, since this
+MicroPython cannot construct a module object; set its options through the
+arguments, `send(img, fps=..., quality=...)`, not as attributes). A copy on
+the card only makes `import omvview` work elsewhere, where `ACTIVE` is
+False, `send()` does nothing and `poll()` returns None. So a script that
+uses it still runs unchanged from the IDE or as main.py.
+
+The page shows the newest frame (MJPEG at `/stream`) under a canvas: a
+click posts `click X Y`, a drag posts `box X Y W H`, both in the JPEG's
+pixels, and a status line shows the frame rate and the last event. For
+scripts and curl: `GET /frame.jpg`, `GET /status` (JSON), `POST /event`
+with the line as the body. The script's text output goes to the terminal
+as with `run`, and Ctrl-C stops it the same way.
+
+Packets, on the script's stdout among its text:
+
+| bytes | |
+|---|---|
+| 5 | magic `ff 4f 4d 56 46` (`b"\xffOMVF"`) |
+| 4 | JPEG length n, u32 little-endian |
+| 4 | crc32 of the JPEG (zlib/IEEE, `binascii.crc32`), u32 little-endian |
+| n | the JPEG |
+
+Printed text never holds 0xFF, which is how omvcon finds a packet; it
+reads one by its length, so 0x04 bytes inside a JPEG do not end the raw
+REPL's output, and drops one whose crc does not match. Events go to the
+script's stdin as text lines; omvcon only writes lines it has parsed and
+reformatted, so a 0x03 (interrupt) or 0x04 never reaches the board.
+`send()` turns Ctrl-C off while it writes a packet (an interrupt mid-packet
+would leave omvcon waiting for the rest); a Ctrl-C that arrives then lands
+in stdin, `poll()` raises it, and omvcon repeats Ctrl-C every second until
+the script stops. Events posted after the Ctrl-C are not sent: the raw REPL
+would read what the script left unread as code.
+
+Measured on D008 (Tiny1-C board, v1.3), 2026-10-16:
+
+| | |
+|---|---|
+| `send()` of a busy 256x192 RGB565 test frame (~24 KB JPEG, q80) | 4.5 ms |
+| the same, uncapped, through the console | 128 fps, 3.0 MB/s, 0 bad of 1790 |
+| a plain 256x192 frame, uncapped | 234 fps |
+| `lwir/thermal.py` while a webcam host also streams 720p | 11.8 fps, ~16 KB frames, 0 bad of 643 |
+
+So the console carries frames like these at ~3 MB/s, the same floor as
+`get`, and the 15 fps default cap uses an eighth of it. `select.poll` on
+`sys.stdin` works while a script runs under the raw REPL, and a Ctrl-C at
+234 fps landed mid-packet and came out of `poll()` as designed.
 
 ## Where `get`'s 4 MB/s goes (board #3, v1.2.1, 2026-10-12)
 
