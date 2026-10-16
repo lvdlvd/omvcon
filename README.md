@@ -1,7 +1,13 @@
 # omvcon
 
-A console for Cormorant cameras that does what mpremote does, minus the
-habits that cost us replugs.
+A console for MicroPython boards on USB serial that does what mpremote does,
+minus the habits that cost replugs: no soft reset unless asked, a deadline
+on every wait, fast checked file transfers, and a browser view of a
+script's frames that sends clicks back. Written for the Cormorant cameras
+(STM32N6, OpenMV firmware); the console commands work with any MicroPython
+board, `view` with OpenMV firmware. MIT licensed.
+
+    go install github.com/lvdlvd/omvcon@latest
 
     go build -o omvcon .
     ./omvcon status                 # firmware, reset cause, watchdog breadcrumbs
@@ -22,12 +28,13 @@ habits that cost us replugs.
 - **Every wait has a deadline**, and a failed attach says which of four
   things it saw: no console device, a device that won't open, a silent
   board, or a board that talks but gives no prompt.
-- **A silent board is followed through its watchdog reset.** Firmware from
-  openmv `dc0ef9346` on resets a board that hangs in C within 30 s, and
-  records the boot or soft-reset stage plus the PC it hung at. From
-  `25a8a75af` on it also records crashes (HardFault PC, LR, CFSR, HFSR),
-  which used to reset the board without a trace. omvcon waits for the reset
-  and prints `omv.last_reset()`. Look the PC up with
+- **A silent board is followed through its watchdog reset**, on firmware
+  that has one. The Cormorant OpenMV firmware (v1.2 and later) resets a
+  board that hangs in C within 30 s, records the boot or soft-reset stage
+  plus the PC it hung at, and records crashes (HardFault PC, LR, CFSR, HFSR,
+  BFAR). omvcon waits for the reset and prints `omv.last_reset()` and
+  `omv.boot_times()`. On firmware without these, `status` says so and a
+  silent board ends with exit code 3 after 40 s. Look the PC up with
   `arm-none-eabi-addr2line -f -e firmware.elf 0x...`, using the ELF of the
   exact build.
 - **get and put stream raw bytes** over the raw REPL, with a sha256 check
@@ -109,7 +116,7 @@ So the console carries frames like these at ~3 MB/s, the same floor as
 `sys.stdin` works while a script runs under the raw REPL, and a Ctrl-C at
 234 fps landed mid-packet and came out of `poll()` as designed.
 
-## Where `get`'s 4 MB/s goes (board #3, v1.2.1, 2026-10-12)
+## Where `get`'s 4 MB/s goes (a Cormorant camera, OpenMV 5.0.1, 2026-10-12)
 
 Measured on the board with the same 16 KB loop `get` runs, over a 540 MB
 recording on a 128 GB card:
@@ -123,7 +130,7 @@ recording on a 128 GB card:
 | read + sha256 + console write (what `get` does) | 2.2 MB/s in this test, 4.3 MB/s as `get` |
 
 So the console transmit path is the floor (TinyUSB's CDC transmit buffer
-is 4 KB in `boards/CORMORANT/micropython/mpconfigboard.h`, and
+is 4 KB in the Cormorant board config (`CFG_TUD_CDC_TX_BUFSIZE`), and
 MicroPython's console write polls it), and the sha256 on the board costs
 almost as much again. To get near the card's rate: (1) swap sha256 for
 crc32 on both ends (a change in this tool only); (2) raise
@@ -131,3 +138,15 @@ crc32 on both ends (a change in this tool only); (2) raise
 or add a bulk vendor endpoint for file transfers; (3) a card reader beats
 all of it for bulk offloads. USB mass storage stays off on purpose (dual
 access corrupted a card once; see the board config).
+
+## Which parts need what
+
+| command | needs |
+|---|---|
+| `exec`, `run`, `tail`, `get`, `put`, `reset soft`, `reset hard` | any MicroPython with a raw REPL on a USB serial console (`machine.reset()` for the hard reset; `hashlib` for the transfer check, else the transfer is not checked) |
+| `status` | the same; adds the reset record and boot times on firmware with `omv.last_reset()` and `omv.boot_times()` |
+| following a silent board through its watchdog reset | firmware with a watchdog that resets a hung board |
+| `view` | OpenMV firmware: `image` with `to_jpeg`, `binascii.crc32`, `select.poll` on `sys.stdin` |
+
+Measured on Cormorant cameras (OpenMV 5.0.1 base, MicroPython 1.28 and
+1.29); not yet on a stock OpenMV board.

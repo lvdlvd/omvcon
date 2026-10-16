@@ -1,4 +1,4 @@
-module omvcon
+module github.com/lvdlvd/omvcon
 
 go 1.26
 

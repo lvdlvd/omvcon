@@ -2,19 +2,23 @@
 //
 // Copyright (c) 2026 lvd
 
-// omvcon talks to a Cormorant camera's MicroPython console. It is mpremote
-// with three things changed.
+// omvcon talks to a MicroPython board's console over USB serial: any
+// MicroPython board for exec, run, tail, get, put and reset, OpenMV firmware
+// for view. It is mpremote with three things changed.
 //
 //   - It never soft-resets the board on its own. mpremote starts every
-//     session with Ctrl-D. That reruns the soft-reset teardown, and on board
-//     #7 that teardown was the prime suspect for the console "wedges". It
-//     also throws away whatever state the last session left. Here a soft
+//     session with Ctrl-D. That reruns the soft-reset teardown and throws
+//     away whatever state the last session left. Here a soft
 //     reset happens only when asked for (reset soft), and it is timed.
+//     (It was written for Cormorant cameras, where that teardown was the
+//     prime suspect for console "wedges".)
 //   - Every wait has a deadline. When there is no prompt, it says what it
 //     saw: no console, a console that will not open, a silent board, or a
-//     board that talks but gives no prompt. A silent board on the watchdog
-//     firmware (openmv dc0ef9346) resets itself within 30 s. omvcon waits
-//     for that, then reports where the board was stuck (omv.last_reset()).
+//     board that talks but gives no prompt. A silent board on firmware with
+//     a watchdog and crash records (an omv.last_reset() function, as in the
+//     Cormorant OpenMV firmware) resets itself within 30 s. omvcon waits for
+//     that, then reports where the board was stuck. Other firmware simply
+//     lacks the record, and omvcon says so.
 //   - get and put move files as raw bytes over the raw REPL, checked with
 //     sha256: about 1-5 MB/s where `mpremote cp` manages ~16 KB/s.
 //
