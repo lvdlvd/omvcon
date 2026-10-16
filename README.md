@@ -67,6 +67,38 @@ it wants shown and `omvview.poll()` for the page's events:
         omvview.send(img)            # capped at 15 fps; img is not changed
         ev = omvview.poll()          # None, ('click', x, y) or ('box', x, y, w, h)
 
+### Writing a script for view
+
+`examples/clickbox.py` is the smallest complete one: the camera's picture in
+the page, a click puts a cross on it and prints the pixel, a drag draws the
+box and prints its mean brightness.
+
+    ./omvcon view -open examples/clickbox.py
+
+The pattern, in the order the loop does it:
+
+1. **Import it so the script also runs without view.** `try: import omvview`
+   / `except ImportError: omvview = None`, and guard the calls. Run from
+   OpenMV IDE or as main.py, the script then behaves as a plain script.
+2. **Take every waiting event before drawing.** `poll()` returns one event
+   or None and never blocks; loop until None, so a burst of clicks does not
+   lag one frame each. Events are tuples: `('click', x, y)` and
+   `('box', x, y, w, h)`.
+3. **Coordinates are pixels of the image you send.** If you send a scaled
+   or cropped copy, map them back yourself.
+4. **Draw your feedback on the image, then `send()` it.** The page shows
+   exactly what you send; `send()` compresses a copy, so the frame you hold
+   is unchanged and can still be used after the call.
+5. **Mind the rate.** `send(img, fps=15, quality=80)` are the defaults; the
+   console carries about 3 MB/s, so a 320x240 frame at quality 80 runs at
+   the 15 fps cap with room to spare.
+6. **Never print raw bytes.** Your text must not contain 0xFF: that is how
+   omvcon tells a frame from text.
+
+Two OpenMV 5 API details the example trips over otherwise: a point is one
+`(x, y)` tuple (`img.get_pixel((x, y))`, not `get_pixel(x, y)`), and
+`get_statistics()` returns fields (`s.l_mean`), not methods.
+
 No copy of `omvview.py` is needed on the card: view embeds it and
 installs it before the script runs (a class in `sys.modules`, since this
 MicroPython cannot construct a module object; set its options through the
